@@ -3,6 +3,8 @@ package gatlingdemostore
 import io.gatling.core.Predef._
 import io.gatling.http.Predef._
 
+import scala.reflect.internal.NoPhase.id
+
 class DemostoreSimulation extends Simulation {
 
 	val domain = "demostore.gatling.io"
@@ -12,6 +14,7 @@ class DemostoreSimulation extends Simulation {
 
 	val categoryFeeder = csv("data/categoryDetails.csv").random
 	val jsonFeederProducts = jsonFile("data/productDetails.json").random
+	val csvFeederLoginDetails = csv("data/loginDetails.csv").circular
 
 	object CmsPages {
 		def homepage = {
@@ -51,8 +54,49 @@ class DemostoreSimulation extends Simulation {
 						.check(status.is(200))
 						.check(css("#ProductDescription").is("${description}")))
 			}
+
+			def add = {
+				exec(view).
+				exec(http("Add Product to cart")
+					.get(s"/cart/add/${id}")
+					.check(status.is(200))
+					.check(substring("items in your cart"))
+				)
+			}
 		}
 	}
+
+	object Customer {
+		def login = {
+			feed(csvFeederLoginDetails)
+			.exec(
+				http("Load Login Page")
+					.get("/login")
+					.check(status.is(200))
+					.check(substring("Username:"))
+			)
+
+			.exec(
+				http("Customer Login Action")
+				.post("/login")
+				.formParam("_csrf", "${csrfValue}")
+				.formParam("username", "${username}")
+				.formParam("password", "${password}")
+					.check(status.is(200))
+			)
+		}
+	}
+
+	object Checkout {
+		def viewCart = {
+			exec(
+				http("Load Cart Page")
+					.get("/cart/view")
+					.check(status.is(200))
+			)
+		}
+	}
+
 
 		val scn = scenario("DemostoreSimulation")
 			.exec(CmsPages.homepage)
@@ -63,17 +107,12 @@ class DemostoreSimulation extends Simulation {
 			.pause(2)
 			.exec(Catalog.Product.view)
 			.pause(2)
-		.exec(http("Add Product to Cart")
-			.get("/cart/add/19"))
-		.pause(2)
-		.exec(http("View Cart")
-			.get("/cart/view"))
-		.pause(2)
-		.exec(http("Login User")
-			.post("/login")
-			.formParam("_csrf", "${csrfValue}")
-			.formParam("username", "user1")
-			.formParam("password", "pass"))
+			.exec(Catalog.Product.add)
+			.pause(2)
+			.exec(Checkout.viewCart)
+			.pause(2)
+			.exec(Customer.login)
+
 		.pause(2)
 		.exec(http("Load Checkout Information")
 			.get("/cart/checkoutConfirmation")
